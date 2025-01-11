@@ -1,0 +1,142 @@
+;
+; Copyright (c) 2025 gokugoku.
+;
+; SPDX-License-Identifier: BSD-3-Clause
+;
+
+.program pio_hub75_data
+.side_set 1 opt
+set y,6
+set x,0   side 0
+jmp !x,rgbdata
+.wrap_target
+set y,6
+loops:
+wait 1 irq 6                    ;アドレスPIO完了待ち
+rgbdata:
+    pull                side 0
+    mov x,y
+    jmp !x, labela
+labelb:
+    out null,1
+    jmp x--, labelb
+labela:
+    in osr,1
+    out null,8
+    in osr,1
+    out null,8
+    in osr,1
+    pull
+    out x,1
+    jmp !x, rgbdata             ;上セクションデータの場合はもう1周
+    in null, 26
+    mov pins, ::isr
+;postprocess
+    out x,1             side 1
+    jmp !x, rgbdata     side 1  ;行エンド判定
+    irq 7               side 0  ;行エンド到達したらアドレスPIOを発火させる
+    out x,1
+    jmp !x, loops               ;フレームエンド判定
+    jmp y--, loops              ;フレームエンド到達したらbit位置を進める
+.wrap
+
+
+% c-sdk {
+static inline void pio_hub75_data_program_init( PIO pio, uint sm, uint offset, uint out_base ,uint out_pin_num, uint side_base, uint side_pin_num )
+{
+    pio_sm_config c = pio_hub75_data_program_get_default_config( offset );
+        /* PIOステートマシンコンフィグのデフォルト値を取得 */
+
+    sm_config_set_out_pins( &c, out_base, out_pin_num );
+        /* PIOステートマシンコンフィグの出力ピン設定を編集する */
+        /* ベースピン番号とベースから何ピンまで使うかを指定 */
+   sm_config_set_sideset_pins( &c, side_base );
+        /* PIOステートマシンコンフィグのsideピン設定を編集する */
+        /* ベースピン番号を指定(何ピン使うかはアセンブラ側で指定する) */
+    {
+        uint pin_offset;
+        for ( pin_offset = 0; pin_offset < out_pin_num; pin_offset++ )
+        {
+            pio_gpio_init( pio, out_base + pin_offset );
+            /* GPIOをPIOに割り当てる */
+        }
+        for ( pin_offset = 0; pin_offset < side_pin_num; pin_offset++ )
+        {
+            pio_gpio_init( pio, side_base + pin_offset );
+            /* GPIOをPIOに割り当てる */
+        }
+    }
+
+    pio_sm_set_consecutive_pindirs( pio, sm, out_base, out_pin_num, true );
+        /* ピンの向きを設定 */
+    pio_sm_set_consecutive_pindirs( pio, sm, side_base, side_pin_num, true );
+        /* ピンの向きを設定 */
+    sm_config_set_clkdiv( &c, 2 );
+        /* クロック周波数2分周 *///1分周だと動かない
+
+    sm_config_set_out_shift( &c, true, false, 32 );
+    sm_config_set_in_shift(&c, false, false, 32);
+
+    pio_sm_init( pio, sm, offset, &c );
+        /* PIOステートマシンコンフィグを反映しプログラムカウンタを設定 */
+
+    pio_sm_set_enabled( pio, sm, true );
+        /* PIOステートマシンを有効にする */
+}
+%}
+
+.program pio_hub75_address
+.side_set 2
+.wrap_target
+wait 1 irq 7    side 1;         ;データPIOからの発火待ち
+pull            side 3;
+out pins, 5     side 3; ADDRESS
+nop             side 2; LAT0
+nop             side 0; OE0
+irq 6           side 1;         ;処理完了でデータPIO発火
+.wrap
+
+
+% c-sdk {
+static inline void pio_hub75_address_program_init( PIO pio, uint sm, uint offset, uint out_base ,uint out_pin_num, uint side_base, uint side_pin_num )
+{
+    pio_sm_config c = pio_hub75_address_program_get_default_config( offset );
+        /* PIOステートマシンコンフィグのデフォルト値を取得 */
+
+    sm_config_set_out_pins( &c, out_base, out_pin_num );
+        /* PIOステートマシンコンフィグの出力ピン設定を編集する */
+        /* ベースピン番号とベースから何ピンまで使うかを指定 */
+   sm_config_set_sideset_pins( &c, side_base );
+        /* PIOステートマシンコンフィグのsideピン設定を編集する */
+        /* ベースピン番号を指定(何ピン使うかはアセンブラ側で指定する) */
+    {
+        uint pin_offset;
+        for ( pin_offset = 0; pin_offset < out_pin_num; pin_offset++ )
+        {
+            pio_gpio_init( pio, out_base + pin_offset );
+            /* GPIOをPIOに割り当てる */
+        }
+        for ( pin_offset = 0; pin_offset < side_pin_num; pin_offset++ )
+        {
+            pio_gpio_init( pio, side_base + pin_offset );
+            /* GPIOをPIOに割り当てる */
+        }
+    }
+
+    pio_sm_set_consecutive_pindirs( pio, sm, out_base, out_pin_num, true );
+        /* ピンの向きを設定 */
+    pio_sm_set_consecutive_pindirs( pio, sm, side_base, side_pin_num, true );
+        /* ピンの向きを設定 */
+    sm_config_set_clkdiv( &c, 2 );
+        /* クロック周波数2分周 *///1分周だと動かない
+
+    sm_config_set_out_shift( &c, true, false, 16 );
+        /* シフト方向を右に設定 */
+
+    pio_sm_init( pio, sm, offset, &c );
+        /* PIOステートマシンコンフィグを反映しプログラムカウンタを設定 */
+
+    pio_sm_set_enabled( pio, sm, true );
+        /* PIOステートマシンを有効にする */
+}
+%}
